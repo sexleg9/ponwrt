@@ -1,4 +1,4 @@
-name: allone PonWrt
+name: release PonWrt
 
 on:
   workflow_dispatch:
