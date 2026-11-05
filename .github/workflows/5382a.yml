@@ -1,4 +1,4 @@
-name: 5382a
+name: hg5382a
 
 on:
   workflow_dispatch:
