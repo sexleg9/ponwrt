@@ -1,4 +1,4 @@
-name: Release PonWrt
+name: 040gmf
 
 on:
   workflow_dispatch:
