@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - 7581
+          - an7581
 
     steps:
       - uses: actions/checkout@v6
