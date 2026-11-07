@@ -33,7 +33,7 @@ jobs:
           - an5382a
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Free build space
         run: |
@@ -57,7 +57,7 @@ jobs:
             uglifyjs unzip wget xmlto xxd zlib1g-dev zstd
 
       - name: Cache downloads
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: dl
           key: ponwrt-dl-${{ matrix.target }}-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}
@@ -86,20 +86,60 @@ jobs:
             configs/release.config > .config
           make defconfig
 
+      - name: Clean libdeflate completely
+        run: |
+          rm -rf build_dir/host/libdeflate-*
+          rm -rf build_dir/hostpkg/libdeflate-*
+          rm -rf staging_dir/host/bin/libdeflate-*
+          rm -f dl/libdeflate-*.tar.gz
+
+      - name: Build libdeflate verbose
+        run: |
+          set -o pipefail
+          make tools/libdeflate/compile V=s -j1 2>&1 | tee /tmp/libdeflate.log
+
+      - name: Show libdeflate log
+        if: always()
+        run: |
+          echo "===== libdeflate build log ====="
+          cat /tmp/libdeflate.log || true
+
       - name: Download sources
         run: make download -j"$(nproc)"
 
-      - name: Build ${{ matrix.target }}
-        run: make -j"$(nproc)"
+      - name: Build lz4 verbose
+        run: |
+          set -o pipefail
+          make tools/lz4/compile V=s -j1 2>&1 | tee /tmp/lz4.log
+
+      - name: Show lz4 log
+        if: always()
+        run: |
+          echo "===== lz4 build log ====="
+          cat /tmp/lz4.log || true
+
+      - name: Build firmware
+        run: |
+          set -o pipefail
+          make tools/lz4/compile V=s -j1 2>&1 | tee /tmp/lz4.log
+          make -j"$(nproc)" 2>&1 | tee /tmp/firmware.log
+
+      - name: Show firmware log
+        if: always()
+        run: |
+          echo "===== lz4 log ====="
+          cat /tmp/lz4.log || true
+          echo "===== firmware build log ====="
+          cat /tmp/firmware.log || true
 
       - name: Pack ${{ matrix.target }}
         run: |
-          mkdir release
+          mkdir -p release
           tar --zstd -cf "release/ponwrt-${{ matrix.target }}.tar.zst" \
             -C bin/targets/airoha "${{ matrix.target }}"
 
       - name: Upload ${{ matrix.target }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ponwrt-${{ matrix.target }}
           path: release/*.tar.zst
@@ -115,7 +155,7 @@ jobs:
 
     steps:
       - name: Download firmware archives
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
           pattern: ponwrt-*
           path: release
