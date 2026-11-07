@@ -93,11 +93,6 @@ jobs:
 
       - name: 开始编译
         run: make -j$(nproc)
-      - name: Download sources
-        run: make download -j"$(nproc)"
-
-      - name: Build ${{ matrix.target }}
-        run: make -j"$(nproc)"
 
       - name: Pack ${{ matrix.target }}
         run: |
