@@ -85,14 +85,19 @@ jobs:
             "configs/${{ matrix.target }}.config" \
             configs/release.config > .config
           make defconfig
-      - name: 清理 libdeflate 旧构建
-        run: make tools/libdeflate/clean
+          
+      - name: Clean libdeflate completely
+        run: |
+          rm -rf build_dir/host/libdeflate-*
+          rm -rf build_dir/hostpkg/libdeflate-*
+          rm -rf staging_dir/host/bin/libdeflate-*
+          rm -f dl/libdeflate-*.tar.gz
 
-      - name: 下载依赖
-        run: make download -j$(nproc)
+      - name: Build libdeflate verbose
+        run: make tools/libdeflate/compile V=s -j1
 
-      - name: 开始编译
-        run: make -j$(nproc)
+      - name: Download sources
+        run: make download -j"$(nproc)"
 
       - name: Pack ${{ matrix.target }}
         run: |
