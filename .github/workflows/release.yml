@@ -143,8 +143,8 @@ jobs:
       - name: Pack ${{ matrix.target }}
         run: |
           mkdir -p release
-          tar --zstd -cf "release/ponwrt-${{ matrix.target }}.tar.zst" \
-            -C bin/targets/airoha "${{ matrix.target }}"
+          cd bin/targets/airoha/${{ matrix.target }}
+          tar --zstd -cf "$GITHUB_WORKSPACE/release/ponwrt-${{ matrix.target }}.tar.zst" *
 
       - name: Upload ${{ matrix.target }}
         uses: actions/upload-artifact@v4
