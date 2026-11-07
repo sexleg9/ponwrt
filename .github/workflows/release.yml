@@ -119,7 +119,15 @@ jobs:
           cat /tmp/lz4.log || true
 
       - name: Build firmware
-        run: make -j"$(nproc)"
+        run: |
+          set -o pipefail
+          make -j"$(nproc)" 2>&1 | tee /tmp/firmware.log
+
+      - name: Show firmware log
+        if: always()
+        run: |
+          echo "===== firmware build log ====="
+          cat /tmp/firmware.log || true
 
       - name: Pack ${{ matrix.target }}
         run: |
