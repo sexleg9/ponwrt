@@ -107,6 +107,17 @@ jobs:
       - name: Download sources
         run: make download -j"$(nproc)"
 
+      - name: Build lz4 verbose
+        run: |
+          set -o pipefail
+          make tools/lz4/compile V=s -j1 2>&1 | tee /tmp/lz4.log
+
+      - name: Show lz4 log
+        if: always()
+        run: |
+          echo "===== lz4 build log ====="
+          cat /tmp/lz4.log || true
+
       - name: Build firmware
         run: make -j"$(nproc)"
 
