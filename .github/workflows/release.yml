@@ -93,6 +93,12 @@ jobs:
           rm -rf staging_dir/host/bin/libdeflate-*
           rm -f dl/libdeflate-*.tar.gz
 
+      - name: Clean all build artifacts
+        run: |
+          rm -rf build_dir target
+          rm -rf staging_dir
+          rm -rf tmp
+          
       - name: Build libdeflate verbose
         run: |
           set -o pipefail
@@ -122,6 +128,7 @@ jobs:
         run: |
           set -o pipefail
           make tools/lz4/compile V=s -j1 2>&1 | tee /tmp/lz4.log
+          make target/linux/compile V=s -j1 2>&1 | tee /tmp/target-linux.log
           make -j"$(nproc)" 2>&1 | tee /tmp/firmware.log
 
       - name: Show firmware log
@@ -129,6 +136,8 @@ jobs:
         run: |
           echo "===== lz4 log ====="
           cat /tmp/lz4.log || true
+          echo "===== target/linux log ====="
+          cat /tmp/target-linux.log || true
           echo "===== firmware build log ====="
           cat /tmp/firmware.log || true
 
