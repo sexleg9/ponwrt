@@ -121,11 +121,14 @@ jobs:
       - name: Build firmware
         run: |
           set -o pipefail
+          make tools/lz4/compile V=s -j1 2>&1 | tee /tmp/lz4.log
           make -j"$(nproc)" 2>&1 | tee /tmp/firmware.log
 
       - name: Show firmware log
         if: always()
         run: |
+          echo "===== lz4 log ====="
+          cat /tmp/lz4.log || true
           echo "===== firmware build log ====="
           cat /tmp/firmware.log || true
 
