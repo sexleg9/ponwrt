@@ -18,10 +18,16 @@ include $(INCLUDE_DIR)/host-build.mk
 
 DECOMPRESS_CMD:=$(STAGING_DIR_HOST)/bin/gzip -dc $(DL_DIR)/$(PKG_SOURCE) |
 
+# 兼容老版本 OpenWrt：没有 HOSTCC_NOCACHE 时回退到 HOSTCC
+HOSTCC_NOCACHE ?= $(HOSTCC)
+
 define Host/Compile
 	$(HOSTCC_NOCACHE) $(HOST_CFLAGS) $(HOST_LDFLAGS) \
-	$(HOST_BUILD_DIR)/lib/*{,/*}.c \
-	$(HOST_BUILD_DIR)/programs/{gzip,prog_util,tgetopt}.c \
+	$(HOST_BUILD_DIR)/lib/*.c \
+	$(HOST_BUILD_DIR)/lib/*/*.c \
+	$(HOST_BUILD_DIR)/programs/gzip.c \
+	$(HOST_BUILD_DIR)/programs/prog_util.c \
+	$(HOST_BUILD_DIR)/programs/tgetopt.c \
 	-o $(HOST_BUILD_DIR)/libdeflate-gzip
 endef
 
