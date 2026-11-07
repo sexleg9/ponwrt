@@ -85,7 +85,7 @@ jobs:
             "configs/${{ matrix.target }}.config" \
             configs/release.config > .config
           make defconfig
-          
+
       - name: Clean libdeflate completely
         run: |
           rm -rf build_dir/host/libdeflate-*
@@ -99,9 +99,12 @@ jobs:
       - name: Download sources
         run: make download -j"$(nproc)"
 
+      - name: Build firmware
+        run: make -j"$(nproc)"
+
       - name: Pack ${{ matrix.target }}
         run: |
-          mkdir release
+          mkdir -p release
           tar --zstd -cf "release/ponwrt-${{ matrix.target }}.tar.zst" \
             -C bin/targets/airoha "${{ matrix.target }}"
 
