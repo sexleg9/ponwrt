@@ -86,7 +86,7 @@ jobs:
             configs/release.config > .config
           make defconfig
 
-            - name: Clean libdeflate completely
+      - name: Clean libdeflate completely
         run: |
           rm -rf build_dir/host/libdeflate-*
           rm -rf build_dir/hostpkg/libdeflate-*
