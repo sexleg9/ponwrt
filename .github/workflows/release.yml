@@ -86,7 +86,7 @@ jobs:
             configs/release.config > .config
           make defconfig
 
-      - name: Clean libdeflate completely
+            - name: Clean libdeflate completely
         run: |
           rm -rf build_dir/host/libdeflate-*
           rm -rf build_dir/hostpkg/libdeflate-*
@@ -94,7 +94,15 @@ jobs:
           rm -f dl/libdeflate-*.tar.gz
 
       - name: Build libdeflate verbose
-        run: make tools/libdeflate/compile V=s -j1
+        run: |
+          set -o pipefail
+          make tools/libdeflate/compile V=s -j1 2>&1 | tee /tmp/libdeflate.log
+
+      - name: Show libdeflate log
+        if: always()
+        run: |
+          echo "===== libdeflate build log ====="
+          cat /tmp/libdeflate.log || true
 
       - name: Download sources
         run: make download -j"$(nproc)"
