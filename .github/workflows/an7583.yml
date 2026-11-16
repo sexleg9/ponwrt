@@ -1,0 +1,196 @@
+name: Release PonWrt
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+        type: string
+      prerelease:
+        description: Mark as prerelease
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    environment: release
+    env:
+      # rules.mk 在 CONFIG_CCACHE=y 时 export CCACHE_DIR=$(TOPDIR)/.ccache
+      # 和 CCACHE_BASEDIR=$(TOPDIR)，这两个由 make 接管；下面两个只有这里能设。
+      # 指纹用编译器版本而不是 mtime：runner 每次重建 toolchain，mtime 必变，
+      # 不加这条缓存永远打不中。CCACHE_NOCOMPRESS 已由 rules.mk 打开。
+      CCACHE_COMPILERCHECK: '%compiler% -dumpmachine; %compiler% -dumpversion'
+      CCACHE_MAXSIZE: 1G
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - an7581
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # 需要完整历史：scripts/getver.sh 是靠 `git rev-list <固定提交>..HEAD`
+          # 数提交来算 DISTRIB_REVISION 的，depth=1 的浅克隆里那个提交不存在，
+          # 算出来会是错的 —— 刷完机 `cat /etc/openwrt_release` 就对不上版本。
+          fetch-depth: 0
+
+      - name: Free build space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk \
+            gettext git g++-multilib gcc-multilib gperf help2man intltool \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
+            libtool libyaml-dev lld llvm ninja-build p7zip-full patch pkgconf \
+            python3 python3-docutils python3-pip python3-ply python3-pyelftools \
+            qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo \
+            uglifyjs unzip wget xmlto xxd zlib1g-dev zstd
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: ponwrt-dl-${{ matrix.target }}-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}
+          restore-keys: |
+            ponwrt-dl-${{ matrix.target }}-
+
+      - name: Cache compiler objects (ccache)
+        uses: actions/cache@v4
+        with:
+          # configs/*.config 里 CONFIG_CCACHE=y、CONFIG_CCACHE_DIR="" ⇒ 缓存落在
+          # $(TOPDIR)/.ccache。key 里带 sha 是为了每轮都能"存新版"，restore-keys
+          # 前缀命中最近一次，既不会互相覆盖，也不会永远打不中。
+          path: .ccache
+          key: ponwrt-ccache-${{ matrix.target }}-${{ hashFiles('configs/*.config') }}-${{ github.sha }}
+          restore-keys: |
+            ponwrt-ccache-${{ matrix.target }}-${{ hashFiles('configs/*.config') }}-
+            ponwrt-ccache-${{ matrix.target }}-
+
+      - name: Install feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Apply fork feed patches
+        run: |
+          # feeds/ 不入库：本 fork 改在上游驱动里的修复（EPON 上 pon0-online
+          # 恒灭）是以补丁形式存在 feed-patches/ 的。缺了这一步，CI 编出来的
+          # 固件会**静默缺少**这些修复 —— feeds install 拿到的是未打补丁的源码。
+          # 脚本幂等；补丁套不上时以非 0 退出，整个 job 失败，不会发布错固件。
+          ./feed-patches/apply.sh
+
+      - name: Load repository signing key
+        env:
+          PONWRT_APK_PRIVATE_KEY: ${{ secrets.PONWRT_APK_PRIVATE_KEY }}
+        run: |
+          if [ -n "$PONWRT_APK_PRIVATE_KEY" ]; then
+            umask 077
+            printf '%s\n' "$PONWRT_APK_PRIVATE_KEY" > private-key.pem
+            openssl ec -in private-key.pem -pubout -out public-key.pem
+          fi
+
+      - name: Configure ${{ matrix.target }}
+        run: |
+          ./scripts/kconfig.pl + \
+            "configs/${{ matrix.target }}.config" \
+            configs/release.config > .config
+          make defconfig
+
+      - name: Download sources
+        run: make download -j"$(nproc)"
+
+      - name: Build ${{ matrix.target }}
+        run: make -j"$(nproc)"
+
+      - name: Report ccache statistics
+        if: always()
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+        run: |
+          # 缓存是否真的生效，看这里的 hit rate；一直是 0% 就说明 key 或
+          # CCACHE_COMPILERCHECK 有问题，别以为配了缓存就快了。
+          ccache --version | head -n1 || true
+          ccache -s || true
+
+      - name: Verify images
+        run: |
+          # "编译成功"不等于"能刷"：内核构建树被留在 initramfs 配置上时，
+          # sysupgrade 镜像里会塞进 initramfs 内核（U-Boot inflate 失败 → 无限重启）。
+          # 这就是 verify-images.sh 顶部复盘的那次事故，发布前必须过这道闸；
+          # 不过就以非 0 退出，job 失败，不会产出 release。
+          ./verify-images.sh
+
+      - name: Pack ${{ matrix.target }}
+        run: |
+          mkdir release
+          tar --zstd -cf "release/ponwrt-${{ matrix.target }}.tar.zst" \
+            -C bin/targets/airoha "${{ matrix.target }}"
+
+      - name: Upload ${{ matrix.target }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ponwrt-${{ matrix.target }}
+          path: release/*.tar.zst
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download firmware archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ponwrt-*
+          path: release
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: release
+        run: sha256sum *.tar.zst > sha256sums
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          args=(
+            "$RELEASE_TAG"
+            release/*.tar.zst
+            release/sha256sums
+            --repo "$GITHUB_REPOSITORY"
+            --target "$GITHUB_SHA"
+            --title "PonWrt $RELEASE_TAG"
+            --generate-notes
+          )
+          if [ "$PRERELEASE" = true ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"
