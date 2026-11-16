@@ -1,49 +1,32 @@
 #!/bin/sh
-# /etc/uci-defaults/99-hg5585f-setup
-#
-# 首次启动执行一次（uci-defaults 机制会在脚本返回 0 后删除本文件）。
-# 执行时机：/etc/init.d/boot (START=10) → uci_apply_defaults
-#           → 早于 /etc/init.d/network (START=20)，所以改完 netifd 才起来。
-#
-# 模式：HG5585F = PPPoE 主路由（不是透明桥）
-#   pon0.41  = 联通 INTERNET VLAN 41，PPPoE over VLAN
-#   br-lan    = lan1..4（不含 pon0.41）
-#   lan       = 192.168.31.1/24 + DHCP/RA
-#   wan6      = DHCPv6（联通有 IPv6）
-#
-# 身份/账号不预置：
-#   - LOID / PON 板级数据刷完在 LuCI 填
-#   - PPPoE 账号密码刷完用 uci 或 LuCI 填（仓库是公开的，不能写进来）
-#
-# 撤销/改桥接：本脚本只跑一次；如需回退，见 README 的「桥接回退」。
+# /etc/uci-defaults/an7581-setup
+set -u
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
-
-
-#!/bin/sh
-# /etc/uci-defaults/an7581-setup-setup
 LOG=/tmp/an7581-setup.log
 : > "$LOG"
+
 log() {
-	echo "$*" >> "$LOG"
-	logger -t hg5585f-setup "$*"
+	printf '%s\n' "$*" >> "$LOG" 2>/dev/null || true
+	if command -v logger >/dev/null 2>&1; then
+		logger -t an7581-setup -- "$*" 2>/dev/null || true
+	fi
 }
 
 VLAN_INTERNET=41
+VLAN_MGMT=46
 LAN_ADDR=192.168.31.1
 LAN_NETMASK=255.255.255.0
 
+log "an7581-setup start: internet=$VLAN_INTERNET mgmt=$VLAN_MGMT lan=$LAN_ADDR/$LAN_NETMASK"
+
 # ---------------------------------------------------------------------------
 # 1. 重建 network.device
-#    br-lan 只含 lan1..4；pon0.41 只作为 WAN 的 802.1q 设备存在。
+#    br-lan 只含 lan1..4；pon0.41 上网，pon0.46 管理。
 # ---------------------------------------------------------------------------
-n=$(uci -q show network 2>/dev/null | grep -c '=device$')
-while [ "$n" -gt 0 ]; do
-	uci -q delete network.@device[0]
-	n=$((n - 1))
-done
-
 uci -q delete network.br_lan
 uci -q delete network.pon0_41
+uci -q delete network.pon0_46
 
 uci -q batch <<EOF
 set network.br_lan='device'
@@ -55,14 +38,20 @@ add_list network.br_lan.ports='lan3'
 add_list network.br_lan.ports='lan4'
 
 set network.pon0_41='device'
-set network.pon0_41.name='pon0.41'
+set network.pon0_41.name='pon0.${VLAN_INTERNET}'
 set network.pon0_41.type='8021q'
 set network.pon0_41.ifname='pon0'
 set network.pon0_41.vid='${VLAN_INTERNET}'
+
+set network.pon0_46='device'
+set network.pon0_46.name='pon0.${VLAN_MGMT}'
+set network.pon0_46.type='8021q'
+set network.pon0_46.ifname='pon0'
+set network.pon0_46.vid='${VLAN_MGMT}'
 EOF
 
 # ---------------------------------------------------------------------------
-# 2. lan：静态管理地址 + 下游 DHCP/RA
+# 2. lan
 # ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set network.lan='interface'
@@ -83,9 +72,12 @@ delete network.lan.ip6class
 delete network.lan.ip6prefix
 EOF
 
+# ---------------------------------------------------------------------------
+# 3. wan：PPPoE (VLAN 41)
+# ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set network.wan='interface'
-set network.wan.device='pon0.41'
+set network.wan.device='pon0.${VLAN_INTERNET}'
 set network.wan.proto='pppoe'
 set network.wan.ipv6='1'
 set network.wan.auto='1'
@@ -93,14 +85,25 @@ set network.wan.peerdns='1'
 set network.wan.mtu='1500'
 set network.wan.mru='1500'
 set network.wan.keepalive='5 5'
-delete network.wan.username
-delete network.wan.password
 delete network.wan.hostname
 delete network.wan.metric
 EOF
 
 # ---------------------------------------------------------------------------
-# 4. wan6：PPPoE 上的 DHCPv6
+# 3.5 mgmt：VLAN 46 管理（DHCP 客户端，归属 wan 防火墙区域）
+# ---------------------------------------------------------------------------
+uci -q delete network.mgmt
+uci -q batch <<EOF
+set network.mgmt='interface'
+set network.mgmt.device='pon0.${VLAN_MGMT}'
+set network.mgmt.proto='dhcp'
+set network.mgmt.auto='1'
+set network.mgmt.peerdns='0'
+set network.mgmt.metric='100'
+EOF
+
+# ---------------------------------------------------------------------------
+# 4. wan6
 # ---------------------------------------------------------------------------
 uci -q delete network.wan6
 uci -q batch <<EOF
@@ -114,8 +117,7 @@ set network.wan6.auto='1'
 EOF
 
 # ---------------------------------------------------------------------------
-# 5. DHCP / RA：现在是主路由，必须开
-#    静态租约（平板/小米 AP）在 files/etc/config/dhcp 里，脚本不覆盖。
+# 5. DHCP / RA
 # ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set dhcp.lan.ignore='0'
@@ -131,10 +133,25 @@ delete dhcp.lan.ra_flags
 add_list dhcp.lan.ra_flags='managed-config'
 add_list dhcp.lan.ra_flags='other-config'
 set dhcp.wan.ignore='1'
+set dhcp.mgmt.ignore='1'
 EOF
 
 # ---------------------------------------------------------------------------
-# 8. 时间同步与时区
+# 6. 防火墙：mgmt 归属 wan 区域，允许出站
+# ---------------------------------------------------------------------------
+uci -q batch <<EOF
+set firewall.mgmt='zone'
+set firewall.mgmt.name='mgmt'
+set firewall.mgmt.input='REJECT'
+set firewall.mgmt.output='ACCEPT'
+set firewall.mgmt.forward='REJECT'
+set firewall.mgmt.network='mgmt'
+set firewall.mgmt.masq='1'
+set firewall.mgmt.mtu_fix='1'
+EOF
+
+# ---------------------------------------------------------------------------
+# 7. 时间同步与时区
 # ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set system.@system[0].timezone='CST-8'
@@ -152,4 +169,6 @@ uci -q commit network
 uci -q commit dhcp
 uci -q commit firewall
 uci -q commit system
+
+log "an7581-setup done"
 exit 0
