@@ -1,11 +1,12 @@
-name: Release PonWrt
+name: an7583
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag
-        required: true
+        description: Release tag (留空则用 scripts/getver.sh 自动生成)
+        required: false        # >>> 方案二：改为可选
+        default: ''            # >>> 方案二
         type: string
       prerelease:
         description: Mark as prerelease
@@ -17,7 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag }}
+  # >>> 方案二：inputs.tag 可能为空，用 run_id 兜底避免多个自动发布撞车
+  group: release-${{ inputs.tag || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -26,6 +28,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment: release
+    # >>> 方案二：对外输出解析出的 tag
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
     env:
       # rules.mk 在 CONFIG_CCACHE=y 时 export CCACHE_DIR=$(TOPDIR)/.ccache
       # 和 CCACHE_BASEDIR=$(TOPDIR)，这两个由 make 接管；下面两个只有这里能设。
@@ -37,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - an7581
+          - an7583
 
     steps:
       - uses: actions/checkout@v6
@@ -46,6 +51,20 @@ jobs:
           # 数提交来算 DISTRIB_REVISION 的，depth=1 的浅克隆里那个提交不存在，
           # 算出来会是错的 —— 刷完机 `cat /etc/openwrt_release` 就对不上版本。
           fetch-depth: 0
+
+      # >>> 方案二：解析 release tag（必须在 checkout 之后、Install feeds 之前）
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            # getver.sh 输出形如 r23456-abc1234，与固件内 DISTRIB_REVISION 一致
+            REV="$(./scripts/getver.sh)"
+            TAG="ponwrt-${REV}"
+          fi
+          echo "value=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $TAG"
 
       - name: Free build space
         run: |
@@ -178,7 +197,8 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          # >>> 方案二：用 build job 解析出的 tag
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
           args=(
