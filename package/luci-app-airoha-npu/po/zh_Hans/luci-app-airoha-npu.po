@@ -28,7 +28,7 @@ msgstr "已激活"
 msgid "Active"
 msgstr "活动"
 
-msgid "芯片状态"
+msgid "Airoha SoC"
 msgstr "芯片状态"
 
 msgid "Airoha SoC Status"
