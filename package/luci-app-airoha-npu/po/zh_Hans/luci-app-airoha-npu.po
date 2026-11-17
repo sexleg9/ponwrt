@@ -29,10 +29,10 @@ msgid "Active"
 msgstr "活动"
 
 msgid "Airoha Soc"
-msgstr "Airoha SoC"
+msgstr "Airoha 芯片"
 
 msgid "Airoha SoC Status"
-msgstr "Airoha SoC状态"
+msgstr "Airoha 芯片状态"
 
 msgid "Airtime"
 msgstr "空口效率"
