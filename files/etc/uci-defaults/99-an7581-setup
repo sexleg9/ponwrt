@@ -21,6 +21,17 @@ LAN_NETMASK=255.255.255.0
 log "an7581-setup start: internet=$VLAN_INTERNET mgmt=$VLAN_MGMT lan=$LAN_ADDR/$LAN_NETMASK"
 
 # ---------------------------------------------------------------------------
+# 0. 首次启动：确保 /sbin/tempinfo 可执行
+# ---------------------------------------------------------------------------
+if [ -f /sbin/tempinfo ]; then
+	if [ ! -x /sbin/tempinfo ]; then
+		chmod +x /sbin/tempinfo && log "chmod +x /sbin/tempinfo ok" || log "chmod +x /sbin/tempinfo failed"
+	fi
+else
+	log "warning: /sbin/tempinfo not found"
+fi
+
+# ---------------------------------------------------------------------------
 # 1. 重建 network.device
 #    br-lan 只含 lan1..4；pon0.41 上网，pon0.46 管理。
 # ---------------------------------------------------------------------------
