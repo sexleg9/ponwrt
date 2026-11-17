@@ -1,6 +1,6 @@
 {
 	"admin/status/airoha": {
-		"title": "Airoha SoC",
+		"title": "芯片状态",
 		"order": 15,
 		"action": { "type": "view", "path": "airoha_npu/status" },
 		"depends": { "acl": [ "luci-app-airoha-npu" ] }
