@@ -32,7 +32,7 @@ msgid "Airoha SoC"
 msgstr "芯片状态"
 
 msgid "Airoha SoC Status"
-msgstr "Airoha 芯片状态"
+msgstr "芯片状态"
 
 msgid "Airtime"
 msgstr "空口效率"
