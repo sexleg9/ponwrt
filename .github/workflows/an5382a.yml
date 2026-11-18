@@ -1,4 +1,4 @@
-name: an5382a
+name: Release PonWrt
 
 on:
   workflow_dispatch:
