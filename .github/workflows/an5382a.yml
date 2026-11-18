@@ -5,8 +5,8 @@ on:
     inputs:
       tag:
         description: Release tag (留空则用 scripts/getver.sh 自动生成)
-        required: false        # >>> 方案二：改为可选
-        default: ''            # >>> 方案二
+        required: false
+        default: ''
         type: string
       prerelease:
         description: Mark as prerelease
@@ -18,7 +18,6 @@ permissions:
   contents: read
 
 concurrency:
-  # >>> 方案二：inputs.tag 可能为空，用 run_id 兜底避免多个自动发布撞车
   group: release-${{ inputs.tag || github.run_id }}
   cancel-in-progress: false
 
@@ -28,14 +27,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment: release
-    # >>> 方案二：对外输出解析出的 tag
     outputs:
       tag: ${{ steps.tag.outputs.value }}
     env:
-      # rules.mk 在 CONFIG_CCACHE=y 时 export CCACHE_DIR=$(TOPDIR)/.ccache
-      # 和 CCACHE_BASEDIR=$(TOPDIR)，这两个由 make 接管；下面两个只有这里能设。
-      # 指纹用编译器版本而不是 mtime：runner 每次重建 toolchain，mtime 必变，
-      # 不加这条缓存永远打不中。CCACHE_NOCOMPRESS 已由 rules.mk 打开。
       CCACHE_COMPILERCHECK: '%compiler% -dumpmachine; %compiler% -dumpversion'
       CCACHE_MAXSIZE: 1G
     strategy:
@@ -47,19 +41,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # 需要完整历史：scripts/getver.sh 是靠 `git rev-list <固定提交>..HEAD`
-          # 数提交来算 DISTRIB_REVISION 的，depth=1 的浅克隆里那个提交不存在，
-          # 算出来会是错的 —— 刷完机 `cat /etc/openwrt_release` 就对不上版本。
           fetch-depth: 0
 
-      # >>> 方案二：解析 release tag（必须在 checkout 之后、Install feeds 之前）
       - name: Resolve release tag
         id: tag
         run: |
           if [ -n "${{ inputs.tag }}" ]; then
             TAG="${{ inputs.tag }}"
           else
-            # getver.sh 输出形如 r23456-abc1234，与固件内 DISTRIB_REVISION 一致
             REV="$(./scripts/getver.sh)"
             TAG="ponwrt-${REV}"
           fi
@@ -98,9 +87,6 @@ jobs:
       - name: Cache compiler objects (ccache)
         uses: actions/cache@v4
         with:
-          # configs/*.config 里 CONFIG_CCACHE=y、CONFIG_CCACHE_DIR="" ⇒ 缓存落在
-          # $(TOPDIR)/.ccache。key 里带 sha 是为了每轮都能"存新版"，restore-keys
-          # 前缀命中最近一次，既不会互相覆盖，也不会永远打不中。
           path: .ccache
           key: ponwrt-ccache-${{ matrix.target }}-${{ hashFiles('configs/*.config') }}-${{ github.sha }}
           restore-keys: |
@@ -114,10 +100,6 @@ jobs:
 
       - name: Apply fork feed patches
         run: |
-          # feeds/ 不入库：本 fork 改在上游驱动里的修复（EPON 上 pon0-online
-          # 恒灭）是以补丁形式存在 feed-patches/ 的。缺了这一步，CI 编出来的
-          # 固件会**静默缺少**这些修复 —— feeds install 拿到的是未打补丁的源码。
-          # 脚本幂等；补丁套不上时以非 0 退出，整个 job 失败，不会发布错固件。
           ./feed-patches/apply.sh
 
       - name: Load repository signing key
@@ -136,6 +118,9 @@ jobs:
             "configs/${{ matrix.target }}.config" \
             configs/release.config > .config
           make defconfig
+          echo "=== selected target ==="
+          grep -E '^CONFIG_TARGET_(BOARD|SUBTARGET)=' .config
+          grep -E '^CONFIG_TARGET_DEVICE_.*hg5382a.*=y' .config || true
 
       - name: Download sources
         run: make download -j"$(nproc)"
@@ -148,24 +133,34 @@ jobs:
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
-          # 缓存是否真的生效，看这里的 hit rate；一直是 0% 就说明 key 或
-          # CCACHE_COMPILERCHECK 有问题，别以为配了缓存就快了。
           ccache --version | head -n1 || true
           ccache -s || true
 
-      - name: Verify images
+      - name: List build output
         run: |
-          # "编译成功"不等于"能刷"：内核构建树被留在 initramfs 配置上时，
-          # sysupgrade 镜像里会塞进 initramfs 内核（U-Boot inflate 失败 → 无限重启）。
-          # 这就是 verify-images.sh 顶部复盘的那次事故，发布前必须过这道闸；
-          # 不过就以非 0 退出，job 失败，不会产出 release。
-          ./verify-images.sh
+          echo "=== bin/targets/airoha ==="
+          ls -la bin/targets/airoha/ 2>/dev/null || true
+          echo "=== bin/targets/airoha/an7581 ==="
+          ls -la bin/targets/airoha/an7581/ 2>/dev/null || true
+          echo "=== all .itb ==="
+          find bin/targets -name '*.itb' || true
+          echo "=== hg5382a artifacts ==="
+          find bin/targets -name '*hg5382a*' || true
+
+      - name: Verify images
+        run: ./verify-images.sh
 
       - name: Pack ${{ matrix.target }}
         run: |
-          mkdir release
+          mkdir -p release
+          SRC_DIR="bin/targets/airoha/an7581"
+          if [ ! -d "$SRC_DIR" ]; then
+            echo "::error::$SRC_DIR 不存在，实际结构："
+            find bin/targets -maxdepth 3 -type d || true
+            exit 1
+          fi
           tar --zstd -cf "release/ponwrt-${{ matrix.target }}.tar.zst" \
-            -C bin/targets/airoha "${{ matrix.target }}"
+            -C bin/targets/airoha an7581
 
       - name: Upload ${{ matrix.target }}
         uses: actions/upload-artifact@v4
@@ -197,7 +192,6 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          # >>> 方案二：用 build job 解析出的 tag
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
