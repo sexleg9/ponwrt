@@ -52,6 +52,21 @@ airoha/*)
 		*)               extra_temp="${extra_temp:+$extra_temp, }${zt:-thermal}: $zv" ;;
 		esac
 	done
+
+	# WiFi 温度：取所有 phy 温度节点中的最高值；读不到则不设置 wifi_temp
+	wifi_max=""
+	for f in "$IEEE_PATH"/phy*/hwmon*/temp1_input \
+	         "$IEEE_PATH"/phy*/device/hwmon/hwmon*/temp1_input \
+	         "$IEEE_PATH"/wl*/hwmon*/temp1_input; do
+		[ -r "$f" ] || continue
+		v="$(awk '{printf "%.1f", $0 / 1000}' "$f" 2>"/dev/null")"
+		[ -n "$v" ] || continue
+		if [ -z "$wifi_max" ] || awk -v a="$v" -v b="$wifi_max" 'BEGIN{exit !(a>b)}'; then
+			wifi_max="$v"
+		fi
+	done
+	[ -z "$wifi_max" ] || wifi_temp="${wifi_max}°C"
+
 	# 光前端：ponctl 从 PON PHY / 光模块读回的 DDMI 温度（A0 页 0x0060）。
 	# 链路没起来时这个字段可能不存在，取不到就只显示 SoC 那几路。
 	if command -v ponctl >"/dev/null" 2>&1; then
