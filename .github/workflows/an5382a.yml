@@ -1,4 +1,4 @@
-name: Release PonWrt
+name: an5382a
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - an7581
+          - an5382a
 
     steps:
       - uses: actions/checkout@v6
