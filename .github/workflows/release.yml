@@ -19,7 +19,8 @@ permissions:
 
 concurrency:
   # >>> 方案二：inputs.tag 可能为空，用 run_id 兜底避免多个自动发布撞车
-  group: release-${{ inputs.tag || github.run_id }}
+  # 但 run_id 每次都不同，等于没锁；改为按分支串行化，保证同一分支发布不并行。
+  group: release-${{ github.repository }}-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -194,23 +195,43 @@ jobs:
         working-directory: release
         run: sha256sum *.tar.zst > sha256sums
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           # >>> 方案二：用 build job 解析出的 tag
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          args=(
-            "$RELEASE_TAG"
-            release/*.tar.zst
-            release/sha256sums
-            --repo "$GITHUB_REPOSITORY"
-            --target "$GITHUB_SHA"
-            --title "PonWrt $RELEASE_TAG"
-            --generate-notes
-          )
-          if [ "$PRERELEASE" = true ]; then
-            args+=(--prerelease)
+          # 幂等发布：自动 tag 基于提交数，重跑/再点一次 workflow_dispatch
+          # 很容易解析出与已存在 Release 相同的 tag。`gh release create`
+          # 撞名即失败，后续资产上传全被跳过，Release 会停在空壳状态。
+          # 先探测：存在就补传资产并刷新元数据，不存在才创建。
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; uploading assets and refreshing metadata."
+            gh release upload "$RELEASE_TAG" \
+              release/*.tar.zst release/sha256sums \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "PonWrt $RELEASE_TAG" \
+              --generate-notes
+            if [ "$PRERELEASE" = true ]; then
+              gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --prerelease
+            else
+              gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --latest
+            fi
+          else
+            args=(
+              "$RELEASE_TAG"
+              release/*.tar.zst
+              release/sha256sums
+              --repo "$GITHUB_REPOSITORY"
+              --target "$GITHUB_SHA"
+              --title "PonWrt $RELEASE_TAG"
+              --generate-notes
+            )
+            if [ "$PRERELEASE" = true ]; then
+              args+=(--prerelease)
+            fi
+            gh release create "${args[@]}"
           fi
-          gh release create "${args[@]}"
