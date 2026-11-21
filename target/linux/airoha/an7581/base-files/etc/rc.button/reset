@@ -5,6 +5,9 @@
 OVERLAY="$( grep ' /overlay ' /proc/mounts )"
 BOARD=$(cat /tmp/sysinfo/board_name)
 
+# 读取当前无线状态：1=禁用(关闭)，0=启用(开启)
+WIFI_DISABLED="$(uci get wireless.@wifi-device[0].disabled 2>/dev/null)"
+
 case "$ACTION" in
 pressed)
 	[ -z "$OVERLAY" ] && return 0
@@ -15,26 +18,35 @@ timeout)
 	set_state failsafe
 ;;
 released)
-	# 只有当主板是 CT 变体时，才执行短按开关 WiFi
-	if [ "$BOARD" = "fiberhome,hg5585f-ct" ] && [ "$SEEN" -lt 1 ]
+	# 短按复位键：切换 WiFi 与指示灯
+	if [ "$SEEN" -lt 1 ]
 	then
-		echo "TOGGLE WIFI" > /dev/console
-		if [ "$(uci get wireless.@wifi-device[0].disabled 2>/dev/null)" = "1" ]; then
+		if [ "$WIFI_DISABLED" = "1" ]; then
+			# 无线关闭、灯灭 -> 开启无线并点灯
 			uci set wireless.@wifi-device[0].disabled="0"
+			uci set wireless.@wifi-device[1].disabled="0"
+			uci commit wireless
+
 			logger -t button "WiFi Enabled"
+
+			# 后台执行 wifi up，起来后点灯
+			(
+				wifi up
+				[ -d /sys/class/leds/blue:wlan ] && echo 1 > /sys/class/leds/blue:wlan/brightness
+				logger -t button "WiFi Up done, LED on"
+			) &
 		else
+			# 无线开启、灯亮 -> 关闭无线并灭灯
 			uci set wireless.@wifi-device[0].disabled="1"
+			uci set wireless.@wifi-device[1].disabled="1"
+			uci commit wireless
+
+			# 先灭灯给用户反馈
+			[ -d /sys/class/leds/blue:wlan ] && echo 0 > /sys/class/leds/blue:wlan/brightness
 			logger -t button "WiFi Disabled"
+
+			wifi down
 		fi
-		uci commit wireless
-		wifi reload
-	# 非 CT 主板（比如 CU），短按依然是重启
-	elif [ "$BOARD" != "fiberhome,hg5585f-ct" ] && [ "$SEEN" -lt 1 ]
-	then
-		echo "REBOOT" > /dev/console
-		sync
-		reboot
-	# 所有主板，长按 5 秒依然是恢复出厂设置
 	elif [ "$SEEN" -ge 5 -a -n "$OVERLAY" ]
 	then
 		echo "FACTORY RESET" > /dev/console
