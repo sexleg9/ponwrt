@@ -1,0 +1,46 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+OVERLAY="$( grep ' /overlay ' /proc/mounts )"
+BOARD=$(cat /tmp/sysinfo/board_name)
+
+case "$ACTION" in
+pressed)
+	[ -z "$OVERLAY" ] && return 0
+	return 5
+;;
+timeout)
+	. /etc/diag.sh
+	set_state failsafe
+;;
+released)
+	# 只有当主板是 CT 变体时，才执行短按开关 WiFi
+	if [ "$BOARD" = "fiberhome,hg5585f-ct" ] && [ "$SEEN" -lt 1 ]
+	then
+		echo "TOGGLE WIFI" > /dev/console
+		if [ "$(uci get wireless.@wifi-device[0].disabled 2>/dev/null)" = "1" ]; then
+			uci set wireless.@wifi-device[0].disabled="0"
+			logger -t button "WiFi Enabled"
+		else
+			uci set wireless.@wifi-device[0].disabled="1"
+			logger -t button "WiFi Disabled"
+		fi
+		uci commit wireless
+		wifi reload
+	# 非 CT 主板（比如 CU），短按依然是重启
+	elif [ "$BOARD" != "fiberhome,hg5585f-ct" ] && [ "$SEEN" -lt 1 ]
+	then
+		echo "REBOOT" > /dev/console
+		sync
+		reboot
+	# 所有主板，长按 5 秒依然是恢复出厂设置
+	elif [ "$SEEN" -ge 5 -a -n "$OVERLAY" ]
+	then
+		echo "FACTORY RESET" > /dev/console
+		factoryreset -y && reboot &
+	fi
+;;
+esac
+
+return 0
