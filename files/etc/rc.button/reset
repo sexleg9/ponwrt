@@ -1,0 +1,61 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+OVERLAY="$( grep ' /overlay ' /proc/mounts )"
+BOARD=$(cat /tmp/sysinfo/board_name)
+
+case "$ACTION" in
+pressed)
+	[ -z "$OVERLAY" ] && return 0
+	return 5
+;;
+timeout)
+	. /etc/diag.sh
+	set_state failsafe
+;;
+released)
+	# hg5585f-ct：短按切换 WiFi 与指示灯
+	if [ "$BOARD" = "fiberhome,hg5585f-ct" ] && [ "$SEEN" -lt 1 ]
+	then
+		WIFI_DISABLED="$(uci get wireless.@wifi-device[0].disabled 2>/dev/null)"
+
+		if [ "$WIFI_DISABLED" = "1" ]; then
+			# 无线关闭、灯灭 -> 开启无线并点灯
+			uci set wireless.@wifi-device[0].disabled="0"
+			uci set wireless.@wifi-device[1].disabled="0"
+			uci commit wireless
+
+			logger -t button "WiFi Enabled"
+
+			(
+				wifi up
+				[ -d /sys/class/leds/blue:wlan ] && echo 1 > /sys/class/leds/blue:wlan/brightness
+				logger -t button "WiFi Up done, LED on"
+			) &
+		else
+			# 无线开启、灯亮 -> 关闭无线并灭灯
+			uci set wireless.@wifi-device[0].disabled="1"
+			uci set wireless.@wifi-device[1].disabled="1"
+			uci commit wireless
+
+			[ -d /sys/class/leds/blue:wlan ] && echo 0 > /sys/class/leds/blue:wlan/brightness
+			logger -t button "WiFi Disabled"
+
+			wifi down
+		fi
+	# 其它机型（含 hg5585f-cu）：短按重启
+	elif [ "$SEEN" -lt 1 ]
+	then
+		echo "REBOOT" > /dev/console
+		sync
+		reboot
+	elif [ "$SEEN" -ge 5 -a -n "$OVERLAY" ]
+	then
+		echo "FACTORY RESET" > /dev/console
+		factoryreset -y && reboot &
+	fi
+;;
+esac
+
+return 0
