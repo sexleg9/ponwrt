@@ -60,6 +60,21 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo apt-get clean
 
+      - name: Clear caches for clean build
+        run: |
+          echo "Cleaning caches and build residues..."
+          rm -rf .ccache
+          rm -rf dl
+          rm -rf build_dir
+          rm -rf staging_dir
+          rm -rf tmp
+          rm -rf logs
+          rm -rf bin/targets
+          ccache -C 2>/dev/null || true
+          ccache -z 2>/dev/null || true
+          echo "Cache cleanup done."
+          df -h .
+
       - name: Install build dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
