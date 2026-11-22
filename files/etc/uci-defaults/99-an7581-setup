@@ -32,6 +32,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 0.5 开机提权：确保 /etc/rc.button/reset 可执行
+# ---------------------------------------------------------------------------
+if [ -f /etc/rc.button/reset ]; then
+	if [ ! -x /etc/rc.button/reset ]; then
+		chmod +x /etc/rc.button/reset && log "chmod +x /etc/rc.button/reset ok" || log "chmod +x /etc/rc.button/reset failed"
+	fi
+else
+	log "warning: /etc/rc.button/reset not found"
+fi
+
+# ---------------------------------------------------------------------------
 # 1. 重建 network.device
 #    br-lan 只含 lan1..4；pon0.41 上网，pon0.46 管理。
 # ---------------------------------------------------------------------------
