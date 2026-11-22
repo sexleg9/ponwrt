@@ -53,6 +53,13 @@ jobs:
           # 算出来会是错的 —— 刷完机 `cat /etc/openwrt_release` 就对不上版本。
           fetch-depth: 0
 
+      # >>> 仅新增：清理工作区残留缓存文件（不影响后续 cache restore）
+      - name: Clean cached files
+        run: |
+          rm -rf dl .ccache tmp staging_dir bin build_dir
+          rm -f .config .config.old
+          rm -rf /tmp/* 2>/dev/null || true
+
       # >>> 方案二：解析 release tag（必须在 checkout 之后、Install feeds 之前）
       - name: Resolve release tag
         id: tag
