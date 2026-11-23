@@ -28,14 +28,6 @@ else
 	log "warning: /sbin/tempinfo not found"
 fi
 
-if [ -f /etc/rc.button/reset ]; then
-	if [ ! -x /etc/rc.button/reset ]; then
-		chmod +x /etc/rc.button/reset && log "chmod +x /etc/rc.button/reset ok" || log "chmod +x /etc/rc.button/reset failed"
-	fi
-else
-	log "warning: /etc/rc.button/reset not found"
-fi
-
 uci -q delete network.br_lan
 uci -q delete network.pon0_41
 uci -q delete network.pon0_46
