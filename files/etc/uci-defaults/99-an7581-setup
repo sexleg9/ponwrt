@@ -20,9 +20,6 @@ LAN_NETMASK=255.255.255.0
 
 log "an7581-setup start: internet=$VLAN_INTERNET mgmt=$VLAN_MGMT lan=$LAN_ADDR/$LAN_NETMASK"
 
-# ---------------------------------------------------------------------------
-# 0. 首次启动：确保 /sbin/tempinfo 可执行
-# ---------------------------------------------------------------------------
 if [ -f /sbin/tempinfo ]; then
 	if [ ! -x /sbin/tempinfo ]; then
 		chmod +x /sbin/tempinfo && log "chmod +x /sbin/tempinfo ok" || log "chmod +x /sbin/tempinfo failed"
@@ -31,9 +28,6 @@ else
 	log "warning: /sbin/tempinfo not found"
 fi
 
-# ---------------------------------------------------------------------------
-# 0.5 开机提权：确保 /etc/rc.button/reset 可执行
-# ---------------------------------------------------------------------------
 if [ -f /etc/rc.button/reset ]; then
 	if [ ! -x /etc/rc.button/reset ]; then
 		chmod +x /etc/rc.button/reset && log "chmod +x /etc/rc.button/reset ok" || log "chmod +x /etc/rc.button/reset failed"
@@ -42,10 +36,6 @@ else
 	log "warning: /etc/rc.button/reset not found"
 fi
 
-# ---------------------------------------------------------------------------
-# 1. 重建 network.device
-#    br-lan 只含 lan1..4；pon0.41 上网，pon0.46 管理。
-# ---------------------------------------------------------------------------
 uci -q delete network.br_lan
 uci -q delete network.pon0_41
 uci -q delete network.pon0_46
@@ -72,9 +62,6 @@ set network.pon0_46.ifname='pon0'
 set network.pon0_46.vid='${VLAN_MGMT}'
 EOF
 
-# ---------------------------------------------------------------------------
-# 2. lan
-# ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set network.lan='interface'
 set network.lan.device='br-lan'
@@ -94,9 +81,6 @@ delete network.lan.ip6class
 delete network.lan.ip6prefix
 EOF
 
-# ---------------------------------------------------------------------------
-# 3. wan：PPPoE (VLAN 41)
-# ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set network.wan='interface'
 set network.wan.device='pon0.${VLAN_INTERNET}'
@@ -111,9 +95,6 @@ delete network.wan.hostname
 delete network.wan.metric
 EOF
 
-# ---------------------------------------------------------------------------
-# 3.5 mgmt：VLAN 46 管理（DHCP 客户端，归属 wan 防火墙区域）
-# ---------------------------------------------------------------------------
 uci -q delete network.mgmt
 uci -q batch <<EOF
 set network.mgmt='interface'
@@ -124,9 +105,6 @@ set network.mgmt.peerdns='0'
 set network.mgmt.metric='100'
 EOF
 
-# ---------------------------------------------------------------------------
-# 4. wan6
-# ---------------------------------------------------------------------------
 uci -q delete network.wan6
 uci -q batch <<EOF
 set network.wan6='interface'
@@ -138,9 +116,6 @@ set network.wan6.peerdns='1'
 set network.wan6.auto='1'
 EOF
 
-# ---------------------------------------------------------------------------
-# 5. DHCP / RA
-# ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set dhcp.lan.ignore='0'
 set dhcp.lan.dhcpv4='server'
@@ -158,9 +133,6 @@ set dhcp.wan.ignore='1'
 set dhcp.mgmt.ignore='1'
 EOF
 
-# ---------------------------------------------------------------------------
-# 6. 防火墙：mgmt 归属 wan 区域，允许出站
-# ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set firewall.mgmt='zone'
 set firewall.mgmt.name='mgmt'
@@ -172,9 +144,6 @@ set firewall.mgmt.masq='1'
 set firewall.mgmt.mtu_fix='1'
 EOF
 
-# ---------------------------------------------------------------------------
-# 7. 时间同步与时区
-# ---------------------------------------------------------------------------
 uci -q batch <<EOF
 set system.@system[0].timezone='CST-8'
 set system.@system[0].zonename='Asia/Shanghai'
