@@ -3,11 +3,11 @@
 . /lib/functions.sh
 
 OVERLAY="$( grep ' /overlay ' /proc/mounts )"
+BOARD=$(cat /tmp/sysinfo/board_name)
 
 case "$ACTION" in
 pressed)
 	[ -z "$OVERLAY" ] && return 0
-
 	return 5
 ;;
 timeout)
@@ -15,7 +15,33 @@ timeout)
 	set_state failsafe
 ;;
 released)
-	if [ "$SEEN" -lt 1 ]
+	if [ "$BOARD" = "fiberhome,hg5585f-ct" ] && [ "$SEEN" -lt 1 ]
+	then
+		WIFI_DISABLED="$(uci get wireless.@wifi-device[0].disabled 2>/dev/null)"
+
+		if [ "$WIFI_DISABLED" = "1" ]; then
+			uci set wireless.@wifi-device[0].disabled="0"
+			uci set wireless.@wifi-device[1].disabled="0"
+			uci commit wireless
+
+			logger -t button "WiFi Enabled"
+
+			(
+				wifi up
+				[ -d /sys/class/leds/blue:wlan ] && echo 1 > /sys/class/leds/blue:wlan/brightness
+				logger -t button "WiFi Up done, LED on"
+			) &
+		else
+			uci set wireless.@wifi-device[0].disabled="1"
+			uci set wireless.@wifi-device[1].disabled="1"
+			uci commit wireless
+
+			[ -d /sys/class/leds/blue:wlan ] && echo 0 > /sys/class/leds/blue:wlan/brightness
+			logger -t button "WiFi Disabled"
+
+			wifi down
+		fi
+	elif [ "$SEEN" -lt 1 ]
 	then
 		echo "REBOOT" > /dev/console
 		sync
